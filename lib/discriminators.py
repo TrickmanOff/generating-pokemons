@@ -44,18 +44,23 @@ class DCDiscriminator(Discriminator):
             ]
         )
 
-        self.final_act = nn.Sigmoid()
+        self.last_post_conv = nn.BatchNorm2d(latent_channels)
+        self.pre_head = nn.LeakyReLU(self.LRELU_SLOPE)
+        self.head = nn.Linear(latent_channels*4*4, 1)
+        # self.final_act = nn.Sigmoid()
 
     def forward(self, x: torch.Tensor, y=None) -> torch.Tensor:
         """
         :param x: of shape (B, image_channels, 64, 64)
-        :returns: of shape (B, latent_channels*4*4)
+        :returns: of shape (B, 1)
         """
         if y is not None:
             raise RuntimeError('Condition not supported')
 
         for conv, post_conv in zip(self.convs[:-1], self.post_convs):
             x = post_conv(conv(x))
-        x = self.convs[-1](x)
-        x = x.flatten()
-        return self.final_act(x)
+        x = self.last_post_conv(self.convs[-1](x))
+        x = x.flatten(start_dim=1)
+        # x = self.final_act(x)
+        x = self.head(self.pre_head(x))
+        return x
