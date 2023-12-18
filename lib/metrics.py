@@ -55,7 +55,7 @@ class PerBatchMetric:
 
 
 class SSIMMetric(PerBatchMetric):
-    NAME = 'SSIM-train-gen'
+    NAME = 'SSIM (train-gen)'
 
     def __init__(self, normalize_to_default: bool = True):
         self.normalize_to_default = normalize_to_default
@@ -360,6 +360,29 @@ class FIDMetric(DataMetric):
         gen_features = fid_metric.compute_feats(gen_loader)
         fid_value = fid_metric(gen_features, self.val_features)
         return fid_value.item()
+
+
+class SSIMEvalMetric(DataMetric):
+    NAME = 'SSIM (val-gen)'
+
+    def __init__(self, values_cnt: int = 2000, normalize_to_default: bool = True,
+                 batch_size=64):
+        super().__init__(initial_domain_data=False,
+                         val_data_size=values_cnt,
+                         gen_data_size=None,
+                         cache_val_data=True,
+                         shuffle_val_dataset=False,
+                         return_as_batches=False)
+        self.normalize_to_default = normalize_to_default
+        self.batch_size = batch_size
+
+    def evaluate(self, gen_data, val_data, **kwargs) -> float:
+        gen_x, val_x = gen_data[0], val_data[0]
+        if self.normalize_to_default:
+            val_x = (val_x + 1) / 2
+            gen_x = (gen_x + 1) / 2
+        ssim_index = ssim(val_x, gen_x, data_range=1.)
+        return ssim_index.item()
 
 
 class CriticValuesDistributionMetric(DataMetric):
@@ -697,7 +720,7 @@ __all__ = ['Metric', 'CriticValuesDistributionMetric',
            'ConditionBinsMetric',
            'TransformData',
            'DataStatisticsCombiner',
-           'SSIMGenSimilarity', 'FIDMetric',
+           'SSIMGenSimilarity', 'FIDMetric', 'SSIMEvalMetric',
            'DiscriminatorParameterMetric', 'GeneratorParameterMetric',
            'GeneratorAttributeMetric', 'DiscriminatorAttributeMetric',
            'CriticValuesStats', 'GeneratorValuesStats']
