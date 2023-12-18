@@ -138,7 +138,6 @@ class GANEpochTrainer(GanEpochTrainer):
                     loss = - (disc_real_vals - disc_gen_vals).mean()
                 else:
                     loss = - (torch.log(disc_real_vals) + torch.log(1 - disc_gen_vals)).mean()
-                    print(f'Disc loss: {loss.item()}')
                 critic_adv_loss_total += loss.item() * len(gen_batch_x)
                 if regularizer is not None:
                     regularizer_loss = regularizer()

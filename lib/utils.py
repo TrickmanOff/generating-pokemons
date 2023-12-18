@@ -16,10 +16,16 @@ def ohe_labels(y: torch.Tensor, classes_cnt: int) -> torch.Tensor:
     return m
 
 
-def calc_grad_norm(model) -> float:
-    total_norm = 0.
-    for p in model.parameters():
-        param_norm = p.grad.data.norm(2)
-        total_norm += param_norm.item() ** 2
-    total_norm = total_norm ** (1. / 2)
-    return total_norm
+@torch.no_grad()
+def calc_grad_norm(model, norm_type=2) -> float:
+    parameters = model.parameters()
+    if isinstance(parameters, torch.Tensor):
+        parameters = [parameters]
+    parameters = [p for p in parameters if p.grad is not None]
+    total_norm = torch.norm(
+        torch.stack(
+            [torch.norm(p.grad.detach(), norm_type).cpu() for p in parameters]
+        ),
+        norm_type,
+    )
+    return total_norm.item()
