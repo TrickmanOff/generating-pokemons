@@ -82,13 +82,14 @@ def check_tensor(x: torch.Tensor, prefix: str = ''):
     raise ValueError(msg)
 
 
-class WganEpochTrainer(GanEpochTrainer):
-    def __init__(self, n_critic: int = 5, batch_size: int = 64) -> None:
+class GANEpochTrainer(GanEpochTrainer):
+    def __init__(self, n_critic: int = 5, batch_size: int = 64, use_wgan_loss: bool = True) -> None:
         self.n_critic = n_critic
         self.batch_size = batch_size
         # probably, these counters should be moved to logger
         self.gen_batch_cnt = 0
         self.disc_batch_cnt = 0
+        self.use_wgan_loss = use_wgan_loss
 
     def train_epoch(self, gan_model: GAN,
                     train_dataset: torch.utils.data.Dataset, val_dataset: torch.utils.data.Dataset,
@@ -132,7 +133,12 @@ class WganEpochTrainer(GanEpochTrainer):
                 check_tensor(disc_real_vals, 'Discriminator values for real data contain ')
                 disc_gen_vals = gan_model.discriminator(gen_batch_x, gen_batch_y)
                 check_tensor(disc_gen_vals, 'Discriminator values for generated data contain ')
-                loss = - (disc_real_vals - disc_gen_vals).mean()
+                # discriminator loss
+                if self.use_wgan_loss:
+                    loss = - (disc_real_vals - disc_gen_vals).mean()
+                else:
+                    loss = - (torch.log(disc_real_vals) + torch.log(1 - disc_gen_vals)).mean()
+                    print(f'Disc loss: {loss.item()}')
                 critic_adv_loss_total += loss.item() * len(gen_batch_x)
                 if regularizer is not None:
                     regularizer_loss = regularizer()
@@ -162,9 +168,13 @@ class WganEpochTrainer(GanEpochTrainer):
             gan_model.discriminator.requires_grad_(False)
             gen_batch_x, real_batch_x, gen_batch_y, real_batch_y = get_batches(generator_batch)
 
-            observations = (gan_model.discriminator(real_batch_x, real_batch_y) -
-                            gan_model.discriminator(gen_batch_x, gen_batch_y))
-            gen_loss = observations.mean()
+            if self.use_wgan_loss:
+                observations = (gan_model.discriminator(real_batch_x, real_batch_y) -
+                                gan_model.discriminator(gen_batch_x, gen_batch_y))
+                gen_loss = observations.mean()
+            else:
+                disc_gen_vals = gan_model.discriminator(gen_batch_x, gen_batch_y)
+                gen_loss = - torch.log(disc_gen_vals).mean()
             self.gen_batch_cnt += 1
             gen_adv_loss_total += gen_loss.item() * len(gen_batch_x)
             if regularizer is not None:

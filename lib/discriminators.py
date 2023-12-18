@@ -21,8 +21,10 @@ class Discriminator(nn.Module):
 class DCDiscriminator(Discriminator):
     LRELU_SLOPE = 0.2
 
-    def __init__(self, latent_channels: int = 1024, image_channels: int = 3):
+    def __init__(self, latent_channels: int = 1024, image_channels: int = 3, use_wgan_loss: bool = True):
         super().__init__()
+
+        self.use_wgan_loss = use_wgan_loss
 
         self.convs = nn.ModuleList([
             # (B, image_channels, 64, 64)
@@ -44,23 +46,28 @@ class DCDiscriminator(Discriminator):
             ]
         )
 
-        self.last_post_conv = nn.BatchNorm2d(latent_channels)
-        self.pre_head = nn.LeakyReLU(self.LRELU_SLOPE)
-        self.head = nn.Linear(latent_channels*4*4, 1)
-        # self.final_act = nn.Sigmoid()
+        if self.use_wgan_loss:
+            self.last_post_conv = nn.BatchNorm2d(latent_channels)
+            self.pre_head = nn.LeakyReLU(self.LRELU_SLOPE)
+            self.head = nn.Linear(latent_channels * 4 * 4, 1)
+        else:
+            self.final_act = nn.Sigmoid()
 
     def forward(self, x: torch.Tensor, y=None) -> torch.Tensor:
         """
         :param x: of shape (B, image_channels, 64, 64)
-        :returns: of shape (B, 1)
+        :returns: of shape (B, latent_channels*4*4) if wgan loss is used else - (B, 1)
         """
         if y is not None:
             raise RuntimeError('Condition not supported')
 
         for conv, post_conv in zip(self.convs[:-1], self.post_convs):
             x = post_conv(conv(x))
-        x = self.last_post_conv(self.convs[-1](x))
-        x = x.flatten(start_dim=1)
-        # x = self.final_act(x)
-        x = self.head(self.pre_head(x))
+
+        if self.use_wgan_loss:
+            x = self.last_post_conv(self.convs[-1](x))
+            x = x.flatten(start_dim=1)
+            x = self.head(self.pre_head(x))
+        else:
+            x = self.final_act(x)
         return x
