@@ -110,20 +110,27 @@ default_image_inverse_transform = get_default_image_inverse_transform(3)
 
 
 class SimpleImagesDataset(torch.utils.data.Dataset):
-    def __init__(self, data_dir: Path, transform: Callable[[Image.Image], torch.Tensor] = None):
+    def __init__(self, data_dir: Path, transform: Callable[[Image.Image], torch.Tensor] = None,
+                 load_all_in_memory: bool = False):
         index = []
         for filename in sorted(os.listdir(data_dir)):
             if filename.startswith('.'):
                 continue
             index.append(str(data_dir / filename))
         self._index = index
+        if load_all_in_memory:
+            self._index = [Image.open(path) for path in self._index]
+        self.load_all_in_memory = True
         self.transform = transform
 
     def __getitem__(self, item: int) -> torch.Tensor:
         """
         :return: (num_channels, H, W)
         """
-        img = Image.open(self._index[item])
+        if self.load_all_in_memory:
+            img = self._index[item]
+        else:
+            img = Image.open(self._index[item])
         if self.transform is not None:
             img = self.transform(img)
         return img
@@ -133,9 +140,10 @@ class SimpleImagesDataset(torch.utils.data.Dataset):
 
 
 def get_simple_images_dataset(dir_path: Union[str, Path], train: bool = True, val_ratio: float = 0.5,
-                              transform: Callable[[Image.Image], torch.Tensor] = default_image_transform):
+                              transform: Callable[[Image.Image], torch.Tensor] = default_image_transform,
+                              load_all_in_memory: bool = False):
     TRAIN_VAL_SPLIT_SEED = 0x3df3fa
-    full_dataset = SimpleImagesDataset(Path(dir_path), transform)
+    full_dataset = SimpleImagesDataset(Path(dir_path), transform, load_all_in_memory=load_all_in_memory)
 
     np.random.seed(TRAIN_VAL_SPLIT_SEED)
     dataset_size = len(full_dataset)
