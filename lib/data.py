@@ -7,10 +7,11 @@ import numpy as np
 import torch
 import torch.utils.data
 import torchvision
-from torch import nn
 from PIL import Image
+from torch import nn
 from torch.utils.data import Subset
 from torchvision import transforms
+from tqdm import tqdm
 
 
 """
@@ -113,14 +114,15 @@ class SimpleImagesDataset(torch.utils.data.Dataset):
     def __init__(self, data_dir: Path, transform: Callable[[Image.Image], torch.Tensor] = None,
                  load_all_in_memory: bool = False):
         index = []
-        for filename in sorted(os.listdir(data_dir)):
-            if filename.startswith('.'):
+        for filename in tqdm(sorted(os.listdir(data_dir))):
+            filepath = data_dir / filename
+            if filename.startswith('.') or filepath.is_dir():
                 continue
-            index.append(str(data_dir / filename))
+            index.append(str(filepath))
         self._index = index
         if load_all_in_memory:
             self._index = [Image.open(path) for path in self._index]
-        self.load_all_in_memory = True
+        self.load_all_in_memory = load_all_in_memory
         self.transform = transform
 
     def __getitem__(self, item: int) -> torch.Tensor:
