@@ -161,6 +161,42 @@ class GeneratedImagesMetric(ModelMetric):
         return generate_grid(gan_model, nrows=self.nrows, ncols=self.ncols, seed=self.seed)
 
 
+class SSIMGenSimilarity(ModelMetric):
+    NAME = 'SSIM-gen-similarity'
+
+    def __init__(self, values_cnt: int = 25, seed: Optional[int] = 42, normalize_to_default: bool = True):
+        self.values_cnt = values_cnt
+        self.seed = seed
+        self.normalize_to_default = normalize_to_default
+
+    def evaluate(self, gan_model: GAN, *args, **kwargs) -> float:
+        gan_model.eval()
+        with torch.no_grad():
+            z = gan_model.gen_noise(self.values_cnt, self.seed).to(get_local_device())
+            gen_batch_x = gan_model.generator(z)
+            if self.normalize_to_default:
+                gen_batch_x = (gen_batch_x + 1) / 2
+
+            """
+            Пары (0, 1), (0, 2), ..., (1, 2), (1, 3), ...
+            """
+
+            x = []
+            y = []
+
+            # naive implementation
+            for i in range(len(gen_batch_x)):
+                for j in range(i + 1, len(gen_batch_x)):
+                    x.append(gen_batch_x[i])
+                    y.append(gen_batch_x[j])
+
+            x = torch.stack(x, dim=0)
+            y = torch.stack(y, dim=0)
+
+            ssim_index = ssim(x, y, data_range=1.)
+            return ssim_index.item()
+
+
 def generate_data(gan_model: GAN, dataloader: torch.utils.data.DataLoader,
                   gen_size: Optional[int] = None) -> Generator:
     """
@@ -629,6 +665,7 @@ __all__ = ['Metric', 'CriticValuesDistributionMetric',
            'ConditionBinsMetric',
            'TransformData',
            'DataStatisticsCombiner',
+           'SSIMGenSimilarity',
            'DiscriminatorParameterMetric', 'GeneratorParameterMetric',
            'GeneratorAttributeMetric', 'DiscriminatorAttributeMetric',
            'CriticValuesStats', 'GeneratorValuesStats']

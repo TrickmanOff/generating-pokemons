@@ -102,5 +102,7 @@ def log_metric(metric: Metric, results: Any, logger: GANLogger, period: str, per
         logger.log_metrics(data=data, period=period, period_index=period_index, commit=False)
     elif isinstance(results, plt.Figure):
         logger.log_pyplot(metric.NAME, period, period_index, fig=results)
+    elif isinstance(results, float):
+        logger.log_metrics({metric.NAME: results}, period=period, period_index=period_index, commit=False)
     else:
         raise NotImplementedError(f'Metric "{type(metric)}" is not supported for logging')
