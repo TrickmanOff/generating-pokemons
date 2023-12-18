@@ -1,6 +1,7 @@
 import contextlib
-from typing import Tuple, Generator, Dict, Any, Optional, ContextManager, Callable, List
 from abc import ABC, abstractmethod
+from collections import defaultdict
+from typing import Tuple, Generator, Dict, Any, Optional, ContextManager, Callable, List, Sequence
 
 import torch
 import torch.utils.data
@@ -11,7 +12,7 @@ from lib.data import collate_fn, move_batch_to, get_random_infinite_dataloader
 from lib.utils import calc_grad_norm, get_local_device
 from lib.gan import GAN
 from lib.logger import GANLogger
-from lib.metrics import Metric, MetricsSequence
+from lib.metrics import Metric, MetricsSequence, PerBatchMetric
 from lib.metrics_logging import log_metric
 from lib.normalization import update_normalizers_stats
 from lib.predicates import TrainPredicate
@@ -83,13 +84,15 @@ def check_tensor(x: torch.Tensor, prefix: str = ''):
 
 
 class GANEpochTrainer(GanEpochTrainer):
-    def __init__(self, n_critic: int = 5, batch_size: int = 64, use_wgan_loss: bool = True) -> None:
+    def __init__(self, n_critic: int = 5, batch_size: int = 64, use_wgan_loss: bool = True,
+                 per_batch_metrics: Optional[Sequence[PerBatchMetric]] = None) -> None:
         self.n_critic = n_critic
         self.batch_size = batch_size
         # probably, these counters should be moved to logger
         self.gen_batch_cnt = 0
         self.disc_batch_cnt = 0
         self.use_wgan_loss = use_wgan_loss
+        self.per_batch_metrics = per_batch_metrics or ()
 
     def train_epoch(self, gan_model: GAN,
                     train_dataset: torch.utils.data.Dataset, val_dataset: torch.utils.data.Dataset,
@@ -118,7 +121,9 @@ class GANEpochTrainer(GanEpochTrainer):
         regularizer_loss_total = 0.
         disc_grad_norm_total = 0.
         gen_grad_norm_total = 0.
-        
+
+        per_batch_metrics_total_val = defaultdict(float)
+
         # generator_batch = next(random_dataloader_iter)  # for local testing
         # for batch_index in range(1):                    # -----------------
         for batch_index, generator_batch in enumerate(tqdm(dataloader)):
@@ -166,6 +171,15 @@ class GANEpochTrainer(GanEpochTrainer):
             # generator training
             gan_model.discriminator.requires_grad_(False)
             gen_batch_x, real_batch_x, gen_batch_y, real_batch_y = get_batches(generator_batch)
+
+            # per-batch metrics
+            for metric in self.per_batch_metrics:
+                mean_metric_value = metric(gan_model=gan_model,
+                                           gen_batch_x=gen_batch_x,
+                                           real_batch_x=real_batch_x,
+                                           gen_batch_y=gen_batch_y,
+                                           real_batch_y=real_batch_y)
+                per_batch_metrics_total_val[metric.name] += mean_metric_value * len(gen_batch_x)
 
             if self.use_wgan_loss:
                 observations = (gan_model.discriminator(real_batch_x, real_batch_y) -
@@ -215,13 +229,16 @@ class GANEpochTrainer(GanEpochTrainer):
                     period='epoch',
                     commit=False)
 
-            logger.log_metrics(data={'train/critic/loss': critic_loss_total / len(train_dataset),
-                                     'train/critic/adv_loss': critic_adv_loss_total / len(train_dataset),
-                                     'train/generator/loss': gen_loss_total / len(train_dataset),
-                                     'train/generator/adv_loss': gen_adv_loss_total / len(train_dataset),
-                                     'train/regularizer/loss': regularizer_loss_total / (len(dataloader) * (self.n_critic + 1)),
-                                     'train/discriminator/grad_norm': disc_grad_norm_total / len(dataloader) * self.n_critic,
-                                     'train/generator/grad_norm': gen_grad_norm_total / len(dataloader)},
+            metrics_data = {'train/critic/loss': critic_loss_total / len(train_dataset),
+                            'train/critic/adv_loss': critic_adv_loss_total / len(train_dataset),
+                            'train/generator/loss': gen_loss_total / len(train_dataset),
+                            'train/generator/adv_loss': gen_adv_loss_total / len(train_dataset),
+                            'train/regularizer/loss': regularizer_loss_total / (len(dataloader) * (self.n_critic + 1)),
+                            'train/discriminator/grad_norm': disc_grad_norm_total / len(dataloader) * self.n_critic,
+                            'train/generator/grad_norm': gen_grad_norm_total / len(dataloader)}
+            for metric_name, metric_total_value in per_batch_metrics_total_val.items():
+                metrics_data[f'train/{metric_name}'] = metric_total_value / len(train_dataset)
+            logger.log_metrics(data=metrics_data,
                                period='epoch',
                                commit=False)  # period_index was specified by the caller
 

@@ -6,6 +6,7 @@ import pandas as pd
 import torch
 import torch.utils.data
 from matplotlib import pyplot as plt
+from piq import ssim
 from tqdm import tqdm
 
 from lib.data import collate_fn, move_batch_to, stack_batches
@@ -26,6 +27,48 @@ Each metric has 2 main methods:
 - __call__()
   prepare_args + evaluate
 """
+
+
+class PerBatchMetric:
+    def evaluate(self, *args, **kwargs) -> float:
+        raise NotImplementedError()
+
+    def __call__(self, gan_model: Optional[GAN] = None,
+                 gen_batch_x: Optional[torch.Tensor] = None,
+                 real_batch_x: Optional[torch.Tensor] = None,
+                 gen_batch_y: Optional[torch.Tensor] = None,
+                 real_batch_y: Optional[torch.Tensor] = None) -> float:
+        kwargs = {
+            'gan_model': gan_model,
+            'gen_batch_x': gen_batch_x,
+            'real_batch_x': real_batch_x,
+            'gen_batch_y': gen_batch_y,
+            'real_batch_y': real_batch_y,
+        }
+        with torch.no_grad():
+            return self.evaluate(**kwargs)
+
+    @property
+    def name(self) -> str:
+        raise NotImplementedError()
+
+
+class SSIMMetric(PerBatchMetric):
+    NAME = 'SSIM-train-gen'
+
+    def __init__(self, normalize_to_default: bool = True):
+        self.normalize_to_default = normalize_to_default
+
+    def evaluate(self, real_batch_x: torch.Tensor, gen_batch_x: torch.Tensor, **kwargs) -> float:
+        if self.normalize_to_default:
+            real_batch_x = (real_batch_x + 1) / 2
+            gen_batch_x = (gen_batch_x + 1) / 2
+        ssim_index = ssim(real_batch_x, gen_batch_x, data_range=1.)
+        return ssim_index.item()
+
+    @property
+    def name(self) -> str:
+        return self.NAME
 
 
 class Metric:
@@ -579,6 +622,7 @@ def unravel_metric_results(metric: Metric, results) -> Dict[str, Any]:
 __all__ = ['Metric', 'CriticValuesDistributionMetric',
            'DataStatistic', 'DataStatistics', 'DataMetric',
            'KLDivergence',
+           'PerBatchMetric', 'SSIMMetric',
            'MetricsSequence',
            'GeneratedImagesMetric',
            'unravel_metric_results',
