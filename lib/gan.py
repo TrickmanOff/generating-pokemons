@@ -1,4 +1,4 @@
-from typing import Callable, Dict, Any
+from typing import Callable, Dict, Any, Optional
 
 import torch
 from torch import nn
@@ -9,14 +9,14 @@ from lib.discriminators import Discriminator
 
 class GAN(nn.Module):
     def __init__(self, generator: Generator, discriminator: Discriminator,
-                 noise_generator: Callable[[int], torch.Tensor]) -> None:
+                 noise_generator: Callable[[int, Optional[int]], torch.Tensor]) -> None:
         super().__init__()
         self.generator = generator
         self.discriminator = discriminator
         self.noise_generator = noise_generator
 
-    def gen_noise(self, n: int) -> torch.Tensor:
-        return self.noise_generator(n)
+    def gen_noise(self, n: int, seed: Optional[int] = None) -> torch.Tensor:
+        return self.noise_generator(n, seed)
 
     def forward(self, noise=None):
         noise = noise or self.gen_noise(1)

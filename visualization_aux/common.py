@@ -1,3 +1,5 @@
+from typing import Optional
+
 import numpy as np
 import matplotlib.pyplot as plt
 import torch
@@ -37,14 +39,14 @@ def gen_several_images(gan_model: GAN, n: int = 5, y=None, figsize=(13, 13), ims
     plt.show()
 
 
-def generate_grid(gan_model: GAN, nrows: int, ncols: int, imshow_fn=imshow) -> plt.Figure:
+def generate_grid(gan_model: GAN, nrows: int, ncols: int, imshow_fn=imshow, seed: Optional[int] = None) -> plt.Figure:
     """
     plots in matplotlib
     """
     gan_model.eval()
     with torch.no_grad():
         cnt = nrows * ncols
-        z = gan_model.gen_noise(cnt).to(get_local_device())
+        z = gan_model.gen_noise(cnt, seed=seed).to(get_local_device())
         gen_x = gan_model.generator(z).detach()  # (B, 3, 64, 64)
 
     fig, axs = plt.subplots(nrows=nrows, ncols=ncols, figsize=(20, 20))

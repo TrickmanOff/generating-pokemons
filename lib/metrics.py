@@ -108,13 +108,14 @@ class DiscriminatorParameterMetric(ModelMetric):
 
 
 class GeneratedImagesMetric(ModelMetric):
-    def __init__(self, nrows: int = 5, ncols: int = 5):
+    def __init__(self, nrows: int = 5, ncols: int = 5, seed: Optional[int] = 42):
         self.NAME = f'samples'
         self.nrows = nrows
         self.ncols = ncols
+        self.seed = seed
 
     def evaluate(self, gan_model, *args, **kwargs) -> plt.Figure:
-        return generate_grid(gan_model, nrows=self.nrows, ncols=self.ncols)
+        return generate_grid(gan_model, nrows=self.nrows, ncols=self.ncols, seed=self.seed)
 
 
 def generate_data(gan_model: GAN, dataloader: torch.utils.data.DataLoader,
