@@ -1,4 +1,5 @@
 import os
+import shutil
 from itertools import cycle
 from pathlib import Path
 from typing import Any, Callable, Sequence, Tuple, Union
@@ -12,6 +13,8 @@ from torch import nn
 from torch.utils.data import Subset
 from torchvision import transforms
 from tqdm import tqdm
+
+from lib.utils import download_file
 
 
 """
@@ -159,3 +162,22 @@ def get_simple_images_dataset(dir_path: Union[str, Path], train: bool = True, va
     indices = train_indices if train else val_indices
 
     return Subset(full_dataset, indices)
+
+
+def get_cats_faces_dataset(*args, **kwargs):
+    URL_LINK = 'https://www.googleapis.com/drive/v3/files/1TEHKhNsE4Am8jF8eWgpmFwwHvc3zCw7R?alt=media&key=AIzaSyBAigZjTwo8uh77umBBmOytKc_qjpTfRjI'
+
+    images_dirpath = Path('data/cats')
+
+    if not images_dirpath.exists():
+        arch_filepath = Path('data/cats-faces.zip')
+        if not arch_filepath.exists():
+            print('Dowloading dataset...')
+            arch_filepath.parent.mkdir(parents=True, exist_ok=True)
+            download_file(URL_LINK, arch_filepath.parent, arch_filepath.name)
+
+        print('Unpacking archive...')
+        images_dirpath.mkdir(parents=True)
+        shutil.unpack_archive(arch_filepath, images_dirpath.parent)
+
+    return get_simple_images_dataset(images_dirpath, *args, **kwargs)
