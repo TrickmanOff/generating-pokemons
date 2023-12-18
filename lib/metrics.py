@@ -6,7 +6,8 @@ import pandas as pd
 import torch
 import torch.utils.data
 from matplotlib import pyplot as plt
-from piq import ssim
+from piq import ssim, FID
+from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from lib.data import collate_fn, move_batch_to, stack_batches
@@ -328,6 +329,37 @@ class TransformData(DataMetric):
         gen_data = self.transform_fn(gen_data)
         val_data = self.transform_fn(val_data)
         return self.metric.evaluate(gen_data=gen_data, val_data=val_data, **kwargs)
+
+
+class FIDMetric(DataMetric):
+    NAME = 'FID (val)'
+
+    def __init__(self, values_cnt: int = 2000, normalize_to_default: bool = True,
+                 batch_size=64):
+        super().__init__(initial_domain_data=False,
+                         val_data_size=values_cnt,
+                         gen_data_size=None,
+                         cache_val_data=True,
+                         shuffle_val_dataset=False,
+                         return_as_batches=False)
+        self.val_features = None
+        self.normalize_to_default = normalize_to_default
+        self.batch_size = batch_size
+
+    def evaluate(self, gen_data, val_data, **kwargs) -> float:
+        gen_x, val_x = gen_data[0], val_data[0]
+        if self.normalize_to_default:
+            gen_x = (gen_x + 1) / 2
+            val_x = (val_x + 1) / 2
+        collate_fn = lambda items: {'images': torch.stack(items, dim=0)}
+        gen_loader = DataLoader(gen_x, collate_fn=collate_fn, batch_size=self.batch_size)
+        val_loader = DataLoader(val_x, collate_fn=collate_fn, batch_size=self.batch_size)
+        fid_metric = FID()
+        if self.val_features is None:
+            self.val_features = fid_metric.compute_feats(val_loader)
+        gen_features = fid_metric.compute_feats(gen_loader)
+        fid_value = fid_metric(gen_features, self.val_features)
+        return fid_value.item()
 
 
 class CriticValuesDistributionMetric(DataMetric):
@@ -665,7 +697,7 @@ __all__ = ['Metric', 'CriticValuesDistributionMetric',
            'ConditionBinsMetric',
            'TransformData',
            'DataStatisticsCombiner',
-           'SSIMGenSimilarity',
+           'SSIMGenSimilarity', 'FIDMetric',
            'DiscriminatorParameterMetric', 'GeneratorParameterMetric',
            'GeneratorAttributeMetric', 'DiscriminatorAttributeMetric',
            'CriticValuesStats', 'GeneratorValuesStats']
