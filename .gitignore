@@ -1,6 +1,7 @@
 .idea
 .ipynb_checkpoints/
 **/__pycache__
+.DS_Store
 
 *.pdf
 wandb
@@ -8,3 +9,4 @@ wandb_runs_info
 Untitled*
 
 inference
+report
