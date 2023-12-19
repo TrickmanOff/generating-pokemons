@@ -14,6 +14,7 @@ from visualization_aux.common import generate_grid, generate_images
 
 URL_LINKS = {
     'gan_big': 'https://www.googleapis.com/drive/v3/files/1nFUBPYrKDO0_VTF1qRFu3_ApHy8hx9zX?alt=media&key=AIzaSyBAigZjTwo8uh77umBBmOytKc_qjpTfRjI',
+    'gan_small': 'https://www.googleapis.com/drive/v3/files/11zddyukZtmpbr58vBa8HPSm97ivoNmd3?alt=media&key=AIzaSyBAigZjTwo8uh77umBBmOytKc_qjpTfRjI',
 }
 
 
@@ -63,7 +64,7 @@ if __name__ == '__main__':
     args.add_argument(
         "-m",
         "--model",
-        default='gan_big',
+        default='gan_small',
         type=str,
         help="which architecture to use",
     )
