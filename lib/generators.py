@@ -83,16 +83,11 @@ class FixedDCGenerator(Generator):
     https://pytorch.org/tutorials/beginner/dcgan_faces_tutorial.html
     https://arxiv.org/pdf/1511.06434v2.pdf
     """
-    LATENT_WIDTH = 4
 
     def __init__(self, noise_dim: int = 100, latent_channels: int = 1024,
                  image_channels: int = 3):
         super().__init__()
-        latent_width = self.LATENT_WIDTH
-
         self.latent_channels = latent_channels
-
-        self.noise_proj = nn.Linear(noise_dim, latent_channels * latent_width * latent_width)
 
         self.tconvs = nn.ModuleList([
             # (B, noise_dim)
