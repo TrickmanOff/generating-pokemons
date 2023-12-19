@@ -89,6 +89,8 @@ class FixedDCGenerator(Generator):
         super().__init__()
         self.latent_channels = latent_channels
 
+        self.noise_proj = nn.Linear(noise_dim, latent_channels * 4 * 4)
+
         self.tconvs = nn.ModuleList([
             # (B, noise_dim)
             nn.ConvTranspose2d(noise_dim, latent_channels, kernel_size=4, bias=False),  # (B, latent_channels, 4, 4)
