@@ -4,7 +4,7 @@ This file completely defines the experiment to run
 """
 import argparse
 import contextlib
-from typing import Tuple, Generator, Optional, Dict, List
+from typing import Tuple, Generator, Optional, Dict, List, Callable
 
 import torch
 import torch.utils.data
@@ -12,9 +12,9 @@ from torchvision import transforms
 
 from lib import data
 from lib import logger
-from lib.discriminators import DCDiscriminator, FixedDCDiscriminator
+from lib.discriminators import FixedDCDiscriminator, Discriminator as DiscriminatorModel
 from lib.gan import GAN
-from lib.generators import DCGenerator, FixedDCGenerator
+from lib.generators import FixedDCGenerator, Generator as GeneratorModel
 from lib.metrics import *
 from lib.normalization import apply_normalization, SpectralNormalizer, ABCASNormalizer
 from lib.predicates import TrainPredicate, IgnoreFirstNEpochsPredicate, EachNthEpochPredicate
@@ -77,6 +77,32 @@ def init_logger(model_name: str = ''):
     return logger_cm
 
 
+def get_generator(noise_dim: int, arch: str = 'gan_small') -> GeneratorModel:
+    latent_channels = {
+        'big': 1024,
+        'small': 512,
+    }
+    gan_training_type, model_size = arch.split('_')
+    return FixedDCGenerator(noise_dim=noise_dim, latent_channels=latent_channels[model_size],
+                            image_channels=3)
+
+
+def get_discriminator(arch: str = 'gan_small') -> DiscriminatorModel:
+    latent_channels = {
+        'big': 1024,
+        'small': 512,
+    }
+    gan_training_type, model_size = arch.split('_')
+    return FixedDCDiscriminator(latent_channels=latent_channels[model_size], image_channels=3)
+
+
+def get_noise_generator(noise_dim: int) -> Callable[[int, Optional[int]], torch.Tensor]:
+    def uniform_noise_generator(n: int, seed=None) -> torch.Tensor:
+        gen = None if seed is None else torch.manual_seed(seed)
+        return 2*torch.rand(size=(n, noise_dim), generator=gen) - 1  # [-1, 1]
+    return uniform_noise_generator
+
+
 def form_gan_trainer(data_dir: str, model_name: str,
                      gan_model: Optional[GAN] = None, n_epochs: int = 100,
                      enable_logging: bool = True) -> Generator[Tuple[int, GAN], None, GAN]:
@@ -96,22 +122,19 @@ def form_gan_trainer(data_dir: str, model_name: str,
     # -------
     noise_dimension = 100
 
-    def uniform_noise_generator(n: int, seed=None) -> torch.Tensor:
-        gen = None if seed is None else torch.manual_seed(seed)
-        return 2*torch.rand(size=(n, noise_dimension), generator=gen) - 1  # [-1, 1]
+    noise_generator = get_noise_generator(noise_dimension)
 
-    latent_channels = 512
-    image_channels = 3
-
-    generator = FixedDCGenerator(noise_dim=noise_dimension, latent_channels=latent_channels, image_channels=image_channels)
-    discriminator = FixedDCDiscriminator(latent_channels=latent_channels, image_channels=image_channels)
+    arch = 'gan_small'
+    gan_training_type, model_size = arch.split('_')
+    generator = get_generator(noise_dimension, arch)
+    discriminator = get_discriminator(arch)
 #     discriminator = apply_normalization(discriminator, SpectralNormalizer)
 #     discriminator = apply_normalization(discriminator, ABCASNormalizer)
 
     regularizer = None
 
     if gan_model is None:
-        gan_model = GAN(generator, discriminator, uniform_noise_generator)
+        gan_model = GAN(generator, discriminator, noise_generator)
 
     generator_stepper = Stepper(
         optimizer=torch.optim.RMSprop(generator.parameters(), lr=1e-4)
@@ -122,7 +145,7 @@ def form_gan_trainer(data_dir: str, model_name: str,
     )
 
     per_batch_metrics = form_per_batch_metrics()
-    epoch_trainer = GANEpochTrainer(n_critic=1, batch_size=128, use_wgan_loss=False, per_batch_metrics=per_batch_metrics)
+    epoch_trainer = GANEpochTrainer(n_critic=1, batch_size=128, use_wgan_loss=(gan_training_type == 'wgan'), per_batch_metrics=per_batch_metrics)
 
     model_dir = experiments_storage.get_model_dir(model_name)
     trainer = GanTrainer(model_dir=model_dir, use_saved_checkpoint=False, save_checkpoint_once_in_epoch=10)
