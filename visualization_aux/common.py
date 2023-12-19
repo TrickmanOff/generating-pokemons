@@ -1,12 +1,29 @@
-from typing import Optional
+from typing import Optional, List
 
 import numpy as np
 import matplotlib.pyplot as plt
 import torch
+from PIL import Image
+from tqdm import tqdm
 
 from lib.data import default_image_inverse_transform
 from lib.gan import GAN
 from lib.utils import get_local_device
+
+
+def generate_images(gan_model: GAN, images_cnt: int, batch_size: int = 32,
+                    seed: Optional[int] = None) -> List[Image.Image]:
+    gen_outputs = []
+    batches_cnt = (images_cnt + batch_size - 1) // batch_size
+    noise = gan_model.gen_noise(images_cnt, seed=seed).to(get_local_device())
+    with torch.no_grad():
+        for batch_i in tqdm(range(batches_cnt), desc='Generating images'):
+            cur_noise = noise[batch_i*batch_size:(batch_i + 1)*batch_size]
+            gen_output = gan_model.generator(cur_noise)
+            gen_outputs.append(gen_output)
+
+    gen_outputs = torch.concat(gen_outputs, dim=0).detach().cpu()  # (B, 3, 64, 64)
+    return [default_image_inverse_transform(output) for output in gen_outputs]
 
 
 def imshow(img, ax=None, cmap=None):
@@ -39,23 +56,21 @@ def gen_several_images(gan_model: GAN, n: int = 5, y=None, figsize=(13, 13), ims
     plt.show()
 
 
-def generate_grid(gan_model: GAN, nrows: int, ncols: int, imshow_fn=imshow, seed: Optional[int] = None) -> plt.Figure:
+def generate_grid(gan_model: GAN, nrows: int, ncols: int, figsize=(20, 20),
+                  batch_size: int = 32,
+                  seed: Optional[int] = None) -> plt.Figure:
     """
     plots in matplotlib
     """
     gan_model.eval()
-    with torch.no_grad():
-        cnt = nrows * ncols
-        z = gan_model.gen_noise(cnt, seed=seed).to(get_local_device())
-        gen_x = gan_model.generator(z).detach()  # (B, 3, 64, 64)
+    images = generate_images(gan_model, nrows * ncols, batch_size=batch_size, seed=seed)
 
-    fig, axs = plt.subplots(nrows=nrows, ncols=ncols, figsize=(20, 20))
-    gen_x = gen_x.reshape(nrows, ncols, *gen_x.shape[1:])
+    fig, axs = plt.subplots(nrows=nrows, ncols=ncols, figsize=figsize)
     for row in range(nrows):
         for col in range(ncols):
             ax = axs[row, col]
             ax.axis('off')
-            x = gen_x[row, col]
-            imshow_fn(x, ax)
+            img = images[row*ncols + col]
+            ax.imshow(img)
     plt.subplots_adjust(wspace=0.01, hspace=0.01)
     return fig

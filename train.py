@@ -4,21 +4,22 @@ This file completely defines the experiment to run
 """
 import argparse
 import contextlib
-from typing import Tuple, Generator, Optional, Dict, List
+from typing import Tuple, Generator, Optional, Dict, List, Callable
 
 import torch
 import torch.utils.data
+from torchvision import transforms
 
 from lib import data
 from lib import logger
-from lib.discriminators import DCDiscriminator
+from lib.discriminators import DCDiscriminator, Discriminator as DiscriminatorModel
 from lib.gan import GAN
-from lib.generators import DCGenerator
+from lib.generators import DCGenerator, Generator as GeneratorModel
 from lib.metrics import *
 from lib.normalization import apply_normalization, SpectralNormalizer
 from lib.predicates import TrainPredicate, IgnoreFirstNEpochsPredicate, EachNthEpochPredicate
 from lib.storage import ExperimentsStorage
-from lib.train import Stepper, WganEpochTrainer, GanTrainer
+from lib.train import Stepper, GANEpochTrainer, GanTrainer
 from lib.wandb_logger import WandbCM
 
 
@@ -39,15 +40,29 @@ def form_metric() -> Metric:
     return MetricsSequence(
         CriticValuesDistributionMetric(values_cnt=1000),
         GeneratedImagesMetric(5, 5),
+        SSIMGenSimilarity(values_cnt=25),
+        FIDMetric(values_cnt=2000),
+        SSIMEvalMetric(values_cnt=2000),
     )
 
 
+def form_per_batch_metrics():
+    return [
+        SSIMMetric(),
+    ]
+
+
 def form_metric_predicate() -> Optional[TrainPredicate]:
-    return IgnoreFirstNEpochsPredicate(20) & EachNthEpochPredicate(10)
+    return None
+#     return EachNthEpochPredicate(20)
 
 
 def form_dataset(data_dir: str, train: bool = False) -> torch.utils.data.Dataset:
-    return data.UnifiedDatasetWrapper(data.get_simple_images_dataset(data_dir, train, val_ratio=0.05))
+    if data_dir is None:
+        dataset = data.get_cats_faces_dataset(train=train, val_ratio=0.13, load_all_in_memory=False)
+    else:
+        dataset = data.get_simple_images_dataset(data_dir, train=train, val_ratio=0.13, load_all_in_memory=False)
+    return data.UnifiedDatasetWrapper(dataset)
 
 
 def init_logger(model_name: str = ''):
@@ -61,6 +76,33 @@ def init_logger(model_name: str = ''):
         finally:
             pass
     return logger_cm
+
+
+def get_generator(noise_dim: int, arch: str = 'wgan_small') -> GeneratorModel:
+    latent_channels = {
+        'big': 1024,
+        'small': 512,
+    }
+    gan_training_type, model_size = arch.split('_')
+    return DCGenerator(noise_dim=noise_dim, latent_channels=latent_channels[model_size],
+                       image_channels=3)
+
+
+def get_discriminator(arch: str = 'wgan_small') -> DiscriminatorModel:
+    latent_channels = {
+        'big': 1024,
+        'small': 512,
+    }
+    gan_training_type, model_size = arch.split('_')
+    return DCDiscriminator(latent_channels=latent_channels[model_size], image_channels=3,
+                           use_wgan_loss=(gan_training_type == 'wgan'))
+
+
+def get_noise_generator(noise_dim: int) -> Callable[[int, Optional[int]], torch.Tensor]:
+    def uniform_noise_generator(n: int, seed=None) -> torch.Tensor:
+        gen = None if seed is None else torch.manual_seed(seed)
+        return 2*torch.rand(size=(n, noise_dim), generator=gen) - 1  # [-1, 1]
+    return uniform_noise_generator
 
 
 def form_gan_trainer(data_dir: str, model_name: str,
@@ -82,30 +124,31 @@ def form_gan_trainer(data_dir: str, model_name: str,
     # -------
     noise_dimension = 100
 
-    def uniform_noise_generator(n: int) -> torch.Tensor:
-        return 2*torch.rand(size=(n, noise_dimension)) - 1  # [-1, 1]
+    noise_generator = get_noise_generator(noise_dimension)
 
-    latent_channels = 1024
-    image_channels = 3
-
-    generator = DCGenerator(noise_dim=noise_dimension, latent_channels=latent_channels, image_channels=image_channels)
-    discriminator = DCDiscriminator(latent_channels=latent_channels, image_channels=image_channels)
-    discriminator = apply_normalization(discriminator, SpectralNormalizer)
+    arch = 'wgan_small'
+    gan_training_type, model_size = arch.split('_')
+    generator = get_generator(noise_dimension, arch)
+    discriminator = get_discriminator(arch)
+#     discriminator = apply_normalization(discriminator, SpectralNormalizer)
 
     regularizer = None
 
     if gan_model is None:
-        gan_model = GAN(generator, discriminator, uniform_noise_generator)
+        gan_model = GAN(generator, discriminator, noise_generator)
 
     generator_stepper = Stepper(
-        optimizer=torch.optim.RMSprop(generator.parameters(), lr=1e-3)
+        optimizer=torch.optim.RMSprop(generator.parameters(), lr=1e-4)
     )
 
     discriminator_stepper = Stepper(
         optimizer=torch.optim.RMSprop(discriminator.parameters(), lr=1e-4)
     )
 
-    epoch_trainer = WganEpochTrainer(n_critic=1, batch_size=32)
+    per_batch_metrics = form_per_batch_metrics()
+    epoch_trainer = GANEpochTrainer(n_critic=1, batch_size=128,
+                                    use_wgan_loss=(gan_training_type == 'wgan'),
+                                    per_batch_metrics=per_batch_metrics)
 
     model_dir = experiments_storage.get_model_dir(model_name)
     trainer = GanTrainer(model_dir=model_dir, use_saved_checkpoint=False, save_checkpoint_once_in_epoch=0)
@@ -126,19 +169,20 @@ def run() -> GAN:
     args.add_argument(
         "-i",
         "--input",
+        default=None,
         type=str,
         help="a directory with images",
     )
     args.add_argument(
-        "-l",
-        action="store_true",
-        help="enable logging",
+        "-q",
+        action="store_false",
+        help="disable logging",
     )
     args = args.parse_args()
 
     model_name = 'test'
     gan_trainer = form_gan_trainer(data_dir=args.input, model_name=model_name, n_epochs=150,
-                                   enable_logging=args.l)
+                                   enable_logging=not args.q)
     gan = None
     for epoch, gan in gan_trainer:
         pass

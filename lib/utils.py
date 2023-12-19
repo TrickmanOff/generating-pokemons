@@ -43,14 +43,24 @@ def download_file(url, to_dirpath=None, to_filename=None):
     with requests.get(url, stream=True) as r:
         if 'Content-length' in r.headers:
             total_size = int(r.headers['Content-length'])
-            total = (total_size - chunk_size + 1) // chunk_size
         else:
             total_size = None
-        desc = f'Downloading file'
+        desc = f'Downloading file {to_filename}'
         if total_size is not None:
             desc += f', {total_size / (2**30):.2f}GBytes'
         r.raise_for_status()
+
+        progress_bar = tqdm(
+            total=total_size,  # in bytes
+            desc=desc,
+            unit="B",
+            unit_scale=True,
+            unit_divisor=1024,
+            miniters=1,
+        )
         with open(local_filename, 'wb') as f:
-            for chunk in tqdm(r.iter_content(chunk_size=chunk_size), total=total, desc=desc, unit='MBytes'):
+            for chunk in r.iter_content(chunk_size=chunk_size):
+                actual_chunk_size = len(chunk)
+                progress_bar.update(actual_chunk_size)
                 f.write(chunk)
     return local_filename
